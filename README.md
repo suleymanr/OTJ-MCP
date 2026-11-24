@@ -9,8 +9,6 @@ Desktop companion app and <a href="https://modelcontextprotocol.io/">Model Conte
 
 <p align="center">
   <img src="https://img.shields.io/badge/Python-3.10+-3776AB?logo=python&logoColor=white" />
-  <img src="https://img.shields.io/badge/MCP-Server-111111" />
-  <img src="https://img.shields.io/badge/UI-pywebview-4B8BBE" />
   <img src="https://img.shields.io/badge/Platform-Windows%20%7C%20macOS-lightgrey" />
 </p>
 
