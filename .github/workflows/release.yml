@@ -28,16 +28,13 @@ jobs:
                 run: pyinstaller --clean --noconfirm timelog-mcp.spec
 
             -   name: Verify Windows build
-                run: .\dist\timelog-mcp\timelog-mcp.exe --check
-
-            -   name: Package Windows zip
-                run: Compress-Archive -Path dist\timelog-mcp -DestinationPath dist\timelog-mcp-windows.zip
+                run: .\dist\timelog-mcp.exe --check
 
             -   name: Upload Windows artifact
                 uses: actions/upload-artifact@v4
                 with:
                     name: timelog-mcp-windows
-                    path: dist/timelog-mcp-windows.zip
+                    path: dist/timelog-mcp.exe
 
     build-macos:
         runs-on: macos-latest
@@ -86,5 +83,5 @@ jobs:
                 uses: softprops/action-gh-release@v2
                 with:
                     files: |
-                        artifacts/timelog-mcp-windows/timelog-mcp-windows.zip
+                        artifacts/timelog-mcp-windows/timelog-mcp.exe
                         artifacts/timelog-mcp-macos-arm64/timelog-mcp-macos-arm64.zip
