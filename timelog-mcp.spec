@@ -30,16 +30,13 @@ pyz = PYZ(a.pure)
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.datas,
     [],
+    exclude_binaries=True,
     name='timelog-mcp',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    upx_exclude=[],
-    runtime_tmpdir=None,
     console=sys.platform != 'darwin',
     disable_windowed_traceback=False,
     argv_emulation=False,
@@ -48,10 +45,19 @@ exe = EXE(
     entitlements_file=None,
     icon=['timelog/desktop/ui/icons/timelog.ico'] if sys.platform == 'win32' else None,
 )
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.datas,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    name='timelog-mcp',
+)
 
 if sys.platform == 'darwin':
     app = BUNDLE(
-        exe,
+        coll,
         name='TimelogMCP.app',
         icon=None,
         bundle_identifier='uk.ac.qmul.timelog-mcp',
