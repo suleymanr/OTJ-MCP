@@ -18,16 +18,6 @@ from timelog.updater import (
 )
 
 
-def _draw_timelog_mark(parent: object, size: int, bg: str) -> object:
-    import tkinter as tk
-
-    canvas = tk.Canvas(parent, width=size, height=size, bg=bg, highlightthickness=0)  # type: ignore[arg-type]
-    pad = max(2, size // 9)
-    canvas.create_oval(pad, pad, size - pad, size - pad, outline="#e5e5e5", width=1.6)
-    canvas.create_arc(pad, pad, size - pad, size - pad, start=0, extent=90, fill="#e5e5e5", outline="")
-    return canvas
-
-
 def _run_with_splash(skip_update: bool) -> Exception | None:
     try:
         import tkinter as tk
@@ -64,8 +54,10 @@ def _run_with_splash(skip_update: bool) -> Exception | None:
     brand = tk.Frame(titlebar, bg="#141416")
     brand.pack(side="left", padx=(12, 0), fill="y")
 
-    mark = _draw_timelog_mark(brand, 18, "#141416")
-    mark.pack(side="left", pady=9)  # type: ignore[attr-defined]
+    mark = tk.Canvas(brand, width=18, height=18, bg="#141416", highlightthickness=0)
+    mark.pack(side="left", pady=9)
+    mark.create_oval(2, 2, 16, 16, outline="#e5e5e5", width=1.6)
+    mark.create_arc(2, 2, 16, 16, start=0, extent=90, fill="#e5e5e5", outline="")
 
     brand_lbl = tk.Label(
         brand,
@@ -139,19 +131,13 @@ def _run_with_splash(skip_update: bool) -> Exception | None:
     body = tk.Frame(shell, bg="#141416")
     body.pack(fill="both", expand=True, padx=24, pady=(18, 20))
 
-    head_row = tk.Frame(body, bg="#141416")
-    head_row.pack(anchor="w")
-
-    body_mark = _draw_timelog_mark(head_row, 22, "#141416")
-    body_mark.pack(side="left", padx=(0, 8))  # type: ignore[attr-defined]
-
     tk.Label(
-        head_row,
+        body,
         text="TimelogMCP",
         fg="#f5f5f5",
         bg="#141416",
         font=(font_family, 13, "bold"),
-    ).pack(side="left")
+    ).pack(anchor="w")
 
     status_var = tk.StringVar(value="Checking for updates...")
     tk.Label(
