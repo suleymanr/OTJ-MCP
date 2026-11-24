@@ -4,7 +4,7 @@
 </h1>
 
 <p align="center">
-Desktop companion app and MCP for logging OTJ training & allowing agents to interact with lecture material or documents
+Desktop app and MCP for logging OTJ training & allowing agents to interact with lecture material or documents
 </p>
 
 <p align="center">
