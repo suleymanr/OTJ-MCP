@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 from typing import Callable
 
-from timelog.config import CREATE_NO_WINDOW, REPO_BRANCH, REPO_URL
+from timelog.config import CREATE_NO_WINDOW, REPO_URL
 from timelog.paths import APP_SCRIPT, ICON_FILE, REQUIREMENTS_FILE, ROOT, VENV_DIR, VENV_STAMP
 
 
@@ -105,34 +105,29 @@ def update_via_git(status: Callable[[str], None]) -> None:
     try:
         if not (ROOT / ".git").is_dir():
             status("Linking repository for updates...")
-            _run_git(git_bin, "init", "-b", REPO_BRANCH)
+            _run_git(git_bin, "init")
             _run_git(git_bin, "remote", "add", "origin", REPO_URL)
-            fetch = _run_git(git_bin, "fetch", "origin", REPO_BRANCH, timeout=30)
-            if fetch.returncode == 0:
-                stop_running_app()
-                _run_git(git_bin, "reset", "--hard", f"origin/{REPO_BRANCH}")
-                status("Up to date.")
-            else:
-                status("Offline; continuing with local version.")
-            return
 
-        fetch = _run_git(git_bin, "fetch", "origin", REPO_BRANCH, timeout=20)
+        fetch = _run_git(git_bin, "fetch", "--tags", "--force", "origin", timeout=30)
         if fetch.returncode != 0:
             status("Offline; continuing with local version.")
             return
 
-        local = _run_git(git_bin, "rev-parse", "HEAD").stdout.strip()
-        remote = _run_git(git_bin, "rev-parse", f"origin/{REPO_BRANCH}").stdout.strip()
-        if local and remote and local != remote:
-            status("Downloading update...")
-            stop_running_app()
-            pull = _run_git(git_bin, "pull", "--ff-only", "origin", REPO_BRANCH, timeout=30)
-            if pull.returncode == 0:
-                status("Updated to latest version.")
-            else:
-                status("Could not fast-forward; continuing.")
-        else:
-            status("Already up to date.")
+        tags = _run_git(git_bin, "tag", "-l", "v*", "--sort=-v:refname").stdout.splitlines()
+        latest = tags[0].strip() if tags else ""
+        if not latest:
+            status("No releases found; continuing.")
+            return
+
+        has_head = _run_git(git_bin, "rev-parse", "--verify", "HEAD").returncode == 0
+        if has_head and _run_git(git_bin, "merge-base", "--is-ancestor", f"{latest}^{{commit}}", "HEAD").returncode == 0:
+            status(f"Up to date ({latest}).")
+            return
+
+        status(f"Updating to {latest}...")
+        stop_running_app()
+        res = _run_git(git_bin, "reset", "--hard", latest, timeout=30)
+        status(f"Updated to {latest}." if res.returncode == 0 else "Update failed; continuing.")
     except (OSError, subprocess.SubprocessError):
         status("Update check timed out; continuing.")
 
