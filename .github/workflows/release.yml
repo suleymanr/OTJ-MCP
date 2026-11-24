@@ -10,78 +10,29 @@ permissions:
     contents: write
 
 jobs:
-    build-windows:
-        runs-on: windows-latest
-        steps:
-            -   uses: actions/checkout@v4
-
-            -   uses: actions/setup-python@v5
-                with:
-                    python-version: "3.12"
-
-            -   name: Install dependencies
-                run: |
-                    python -m pip install --upgrade pip
-                    pip install -r requirements.txt pyinstaller
-
-            -   name: Build Windows executable
-                run: pyinstaller --clean --noconfirm timelog-mcp.spec
-
-            -   name: Verify Windows build
-                run: .\dist\timelog-mcp.exe --check
-
-            -   name: Upload Windows artifact
-                uses: actions/upload-artifact@v4
-                with:
-                    name: timelog-mcp-windows
-                    path: dist/timelog-mcp.exe
-
-    build-macos:
-        runs-on: macos-latest
-        steps:
-            -   uses: actions/checkout@v4
-
-            -   uses: actions/setup-python@v5
-                with:
-                    python-version: "3.12"
-
-            -   name: Install dependencies
-                run: |
-                    python -m pip install --upgrade pip
-                    pip install -r requirements.txt pyinstaller
-
-            -   name: Build macOS app
-                run: pyinstaller --clean --noconfirm timelog-mcp.spec
-
-            -   name: Verify macOS build
-                run: ./dist/TimelogMCP.app/Contents/MacOS/timelog-mcp --check
-
-            -   name: Package macOS zip
-                run: |
-                    cd dist
-                    ditto -c -k --sequesterRsrc --keepParent TimelogMCP.app timelog-mcp-macos-arm64.zip
-
-            -   name: Upload macOS artifact
-                uses: actions/upload-artifact@v4
-                with:
-                    name: timelog-mcp-macos-arm64
-                    path: dist/timelog-mcp-macos-arm64.zip
-
-    release:
-        needs:
-            - build-windows
-            - build-macos
-        if: startsWith(github.ref, 'refs/tags/v')
+    package-release:
         runs-on: ubuntu-latest
         steps:
-            -   name: Download all artifacts
-                uses: actions/download-artifact@v4
+            -   uses: actions/checkout@v4
+
+            -   name: Create clean TimelogMCP.zip
+                run: |
+                    mkdir -p dist/TimelogMCP
+                    cp app.py launch.py launch.cmd launch.command requirements.txt pyproject.toml README.md dist/TimelogMCP/
+                    cp -r timelog dist/TimelogMCP/
+                    find dist/TimelogMCP -type d -name "__pycache__" -exec rm -rf {} +
+                    chmod +x dist/TimelogMCP/launch.command
+                    cd dist
+                    zip -r TimelogMCP.zip TimelogMCP
+
+            -   name: Upload workflow artifact
+                uses: actions/upload-artifact@v4
                 with:
-                    path: artifacts
+                    name: TimelogMCP
+                    path: dist/TimelogMCP.zip
 
             -   name: Publish GitHub Release
+                if: startsWith(github.ref, 'refs/tags/v')
                 uses: softprops/action-gh-release@v2
                 with:
-                    files: |
-                        artifacts/timelog-mcp-windows/timelog-mcp.exe
-                        artifacts/timelog-mcp-macos-arm64/timelog-mcp-macos-arm64.zip
+                    files: dist/TimelogMCP.zip

@@ -22,21 +22,13 @@ Desktop companion app and <a href="https://modelcontextprotocol.io/">Model Conte
 
 ## Installation
 
-### Option 1: Prebuilt Releases (Windows & macOS)
+1. Download `TimelogMCP.zip` from **Releases** and extract it anywhere (e.g. `Documents/TimelogMCP`).
+2. Requires **Python 3.11+**.
+3. Run the launcher:
+   - **Windows:** Double-click `launch.cmd`
+   - **macOS:** Double-click `launch.command`
 
-Download the latest archive from **Releases**:
-
-- **Windows:** `timelog-mcp.exe`: download and run directly.
-- **macOS:** `timelog-mcp-macos-arm64.zip`: extract `TimelogMCP.app` to `/Applications`.
-
-### Option 2: Run from Source
-
-Requires **Python 3.10+**.
-
-```sh
-pip install -r requirements.txt
-python app.py
-```
+On launch, `launch.py` checks for updates via Git (installing Git if missing), sets up `.venv`, installs dependencies, and opens TimelogMCP.
 
 ---
 
