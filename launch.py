@@ -1,10 +1,4 @@
 #!/usr/bin/env python3
-"""Cross-platform launcher for TimelogMCP.
-
-Shows a brief update-check screen (at least 1.5s), ensures git is available,
-pulls updates from GitHub, sets up .venv + requirements, and launches app.py.
-"""
-
 from __future__ import annotations
 
 import hashlib
@@ -136,8 +130,9 @@ def update_via_git(status: Callable[[str], None]) -> None:
 
 
 def ensure_venv(status: Callable[[str], None]) -> bool:
-    if not venv_python().exists():
+    if not venv_python().exists() or not (VENV / "pyvenv.cfg").exists():
         status("Creating virtual environment...")
+        shutil.rmtree(VENV, ignore_errors=True)
         subprocess.run(
             [sys.executable, "-m", "venv", str(VENV)],
             check=True,
@@ -175,6 +170,33 @@ def ensure_venv(status: Callable[[str], None]) -> bool:
         STAMP.write_text(req_hash, encoding="utf-8")
 
     return True
+
+
+def _ensure_shortcut_icon() -> None:
+    if os.name != "nt":
+        return
+    ico = ROOT / "timelog" / "desktop" / "ui" / "icons" / "timelog.ico"
+    if not ico.exists():
+        return
+    desired = f"{ico},0"
+    for lnk in (ROOT.parent / "mcp.lnk", ROOT / "mcp.lnk"):
+        if not lnk.exists():
+            continue
+        ps_lnk = str(lnk).replace("'", "''")
+        ps_ico = desired.replace("'", "''")
+        script = (
+            f"$ws = New-Object -ComObject WScript.Shell; "
+            f"$s = $ws.CreateShortcut('{ps_lnk}'); "
+            f"if ($s.IconLocation -ne '{ps_ico}') {{ "
+            f"$s.IconLocation = '{ps_ico}'; $s.Save() }}"
+        )
+        subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+            creationflags=CREATE_NO_WINDOW,
+        )
 
 
 def _run_with_splash(skip_update: bool) -> Exception | None:
@@ -231,6 +253,7 @@ def _run_with_splash(skip_update: bool) -> Exception | None:
     def worker() -> None:
         start = time.monotonic()
         try:
+            _ensure_shortcut_icon()
             if not skip_update:
                 update_via_git(set_status)
             ensure_venv(set_status)
@@ -272,6 +295,16 @@ def main() -> int:
     err = _run_with_splash(skip_update=skip_update)
     if err is not None:
         print(f"error: {err}", file=sys.stderr)
+        try:
+            import tkinter as tk
+            from tkinter import messagebox
+
+            r = tk.Tk()
+            r.withdraw()
+            messagebox.showerror("TimelogMCP Launch Error", str(err))
+            r.destroy()
+        except Exception:
+            pass
         return 1
 
     if os.name == "nt":

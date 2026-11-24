@@ -11,19 +11,29 @@ permissions:
 
 jobs:
     package-release:
-        runs-on: ubuntu-latest
+        runs-on: windows-latest
         steps:
             -   uses: actions/checkout@v4
 
             -   name: Create clean TimelogMCP.zip
                 run: |
-                    mkdir -p dist/TimelogMCP
-                    cp app.py launch.py launch.cmd launch.command requirements.txt pyproject.toml README.md dist/TimelogMCP/
-                    cp -r timelog dist/TimelogMCP/
-                    find dist/TimelogMCP -type d -name "__pycache__" -exec rm -rf {} +
-                    chmod +x dist/TimelogMCP/launch.command
-                    cd dist
-                    zip -r TimelogMCP.zip TimelogMCP
+                    $stage = "dist\timelog-mcp"
+                    $build = "$stage\build"
+                    New-Item -ItemType Directory -Force -Path $build | Out-Null
+                    Copy-Item app.py, launch.py, requirements.txt, pyproject.toml, README.md -Destination $build
+                    Copy-Item timelog -Destination "$build\timelog" -Recurse
+                    Get-ChildItem $build -Recurse -Directory -Filter "__pycache__" | Remove-Item -Recurse -Force
+
+                    $ws = New-Object -ComObject WScript.Shell
+                    $s = $ws.CreateShortcut("$PWD\$stage\mcp.lnk")
+                    $s.TargetPath = "$env:SystemRoot\System32\cmd.exe"
+                    $s.Arguments = '/c py -3 build\launch.py || python build\launch.py'
+                    $s.WorkingDirectory = ''
+                    $s.WindowStyle = 7
+                    $s.IconLocation = 'build\timelog\desktop\ui\icons\timelog.ico,0'
+                    $s.Save()
+
+                    Compress-Archive -Path $stage -DestinationPath dist\TimelogMCP.zip -Force
 
             -   name: Upload workflow artifact
                 uses: actions/upload-artifact@v4
