@@ -7,9 +7,9 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
-from timelog.config import CREATE_NO_WINDOW, REPO_URL
+from timelog.config import APP_VERSION, CREATE_NO_WINDOW, REPO_URL
 from timelog.paths import APP_SCRIPT, ICON_FILE, REQUIREMENTS_FILE, ROOT, VENV_DIR, VENV_STAMP
 
 
@@ -130,6 +130,49 @@ def update_via_git(status: Callable[[str], None]) -> None:
         status(f"Updated to {latest}." if res.returncode == 0 else "Update failed; continuing.")
     except (OSError, subprocess.SubprocessError):
         status("Update check timed out; continuing.")
+
+
+def current_version() -> str:
+    git_bin = _find_git()
+    if git_bin and (ROOT / ".git").is_dir():
+        try:
+            res = _run_git(git_bin, "describe", "--tags", "--abbrev=0", "HEAD", timeout=5)
+            if res.returncode == 0 and res.stdout.strip():
+                return res.stdout.strip()
+        except (OSError, subprocess.SubprocessError):
+            pass
+    return f"v{APP_VERSION}"
+
+
+def check_release_update() -> dict[str, Any]:
+    git_bin = _find_git()
+    if not git_bin or not (ROOT / ".git").is_dir():
+        return {"ok": False, "current": current_version(), "update_available": False}
+    try:
+        if _run_git(git_bin, "fetch", "--tags", "--force", "origin", timeout=20).returncode != 0:
+            return {"ok": False, "current": current_version(), "update_available": False}
+        tags = _run_git(git_bin, "tag", "-l", "v*", "--sort=-v:refname").stdout.splitlines()
+        latest = tags[0].strip() if tags else ""
+        if not latest:
+            return {"ok": True, "current": current_version(), "update_available": False}
+        up_to_date = (
+            _run_git(git_bin, "merge-base", "--is-ancestor", f"{latest}^{{commit}}", "HEAD").returncode == 0
+        )
+        return {
+            "ok": True,
+            "current": current_version(),
+            "latest": latest,
+            "update_available": not up_to_date,
+        }
+    except (OSError, subprocess.SubprocessError):
+        return {"ok": False, "current": current_version(), "update_available": False}
+
+
+def relaunch_launcher() -> None:
+    kwargs: dict[str, Any] = {"cwd": str(ROOT), "stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
+    if os.name == "nt":
+        kwargs["creationflags"] = CREATE_NO_WINDOW | getattr(subprocess, "DETACHED_PROCESS", 0)
+    subprocess.Popen([sys.executable, str(ROOT / "launch.py")], **kwargs)
 
 
 def ensure_venv(status: Callable[[str], None]) -> bool:

@@ -9,7 +9,7 @@ import time
 from typing import Any
 
 from timelog import auth as webview_auth
-from timelog import paths
+from timelog import paths, updater
 from timelog.config import (
     APP_VERSION,
     AUTH_SERVICES,
@@ -125,7 +125,16 @@ class Api:
             "calendar": self.calendar_state(),
             "qmplus": self.qmplus_state(),
             "targets": mcp_clients.targets(),
+            "version": updater.current_version(),
         }
+
+    def check_update(self) -> dict[str, Any]:
+        return updater.check_release_update()
+
+    def apply_update(self) -> dict[str, Any]:
+        updater.relaunch_launcher()
+        self.close()
+        return {"ok": True}
 
     def targets(self) -> dict[str, Any]:
         return {"ok": True, "targets": mcp_clients.targets()}

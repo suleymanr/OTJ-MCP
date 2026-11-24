@@ -120,6 +120,62 @@ function toast(kind, title, body = "") {
   setTimeout(dismiss, 5000);
 }
 
+function showUpdateToast(latest) {
+  if ($("#updateToast")) return;
+  const element = document.createElement("div");
+  element.id = "updateToast";
+  element.className = "toast";
+  element.dataset.s = "ok";
+
+  const iconWrap = document.createElement("span");
+  iconWrap.className = "toast-icon";
+  iconWrap.innerHTML = '<span data-icon="refresh"></span>';
+
+  const content = document.createElement("div");
+  content.className = "toast-body-wrap";
+  content.innerHTML = `<div class="toast-title">New version released (${esc(latest)})</div><div class="toast-body">Update now to install the latest release.</div>`;
+
+  const actions = document.createElement("div");
+  actions.className = "toast-actions";
+
+  const updateBtn = document.createElement("button");
+  updateBtn.type = "button";
+  updateBtn.className = "btn btn-primary btn-xs";
+  updateBtn.textContent = "Update";
+
+  const ignoreBtn = document.createElement("button");
+  ignoreBtn.type = "button";
+  ignoreBtn.className = "btn btn-secondary btn-xs";
+  ignoreBtn.textContent = "Ignore";
+
+  const dismiss = () => {
+    if (element.classList.contains("is-leaving")) return;
+    element.classList.add("is-leaving");
+    setTimeout(() => element.remove(), 160);
+  };
+
+  updateBtn.addEventListener("click", async () => {
+    updateBtn.disabled = true;
+    ignoreBtn.disabled = true;
+    updateBtn.textContent = "Updating…";
+    await call("apply_update");
+  });
+  ignoreBtn.addEventListener("click", dismiss);
+
+  actions.append(updateBtn, ignoreBtn);
+  content.appendChild(actions);
+  element.append(iconWrap, content);
+  paintIcons(element);
+  $("#toasts").appendChild(element);
+}
+
+async function checkForUpdate() {
+  const res = await call("check_update");
+  if (res && res.update_available && res.latest) {
+    showUpdateToast(res.latest);
+  }
+}
+
 async function copyText(text) {
   try {
     await navigator.clipboard.writeText(text);
@@ -651,6 +707,7 @@ async function checkQmplus() {
 function applyBoot(boot) {
   S.boot = boot;
   S.targets = boot.targets || [];
+  $("#appVersion").textContent = boot.version || "";
   S.error = "";
   renderAll();
   if (boot.qmplus && boot.qmplus.connected) checkQmplus();
@@ -832,6 +889,7 @@ async function init() {
   await loadBootstrap();
   call("ui_ready");
   setInterval(() => poll(), 5000);
+  setInterval(checkForUpdate, 15 * 60 * 1000);
 }
 
 document.addEventListener("DOMContentLoaded", init);
