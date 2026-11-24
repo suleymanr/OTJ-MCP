@@ -7,6 +7,12 @@ APP_NAME = "TimelogMCP"
 APP_TITLE = "Timelog"
 APP_VERSION = "1.0.0"
 
+MIN_PYTHON = (3, 11)
+MIN_SPLASH_SECONDS = 1.5
+REPO_URL = os.environ.get("TIMELOG_REPO_URL", "https://github.com/suleymanr/OTJ-MCP.git")
+REPO_BRANCH = os.environ.get("TIMELOG_REPO_BRANCH", "main")
+CREATE_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
+
 MCP_SERVER_NAME = "timelog"
 MCP_SERVER_TITLE = "Cloud Education Timelog"
 MCP_HOST = "127.0.0.1"

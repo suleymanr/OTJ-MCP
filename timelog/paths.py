@@ -10,6 +10,9 @@ FROZEN = bool(getattr(sys, "frozen", False))
 ROOT = Path(sys.executable).resolve().parent if FROZEN else Path(__file__).resolve().parent.parent
 BUNDLE_DIR = Path(getattr(sys, "_MEIPASS", ROOT))
 APP_SCRIPT = ROOT / "app.py"
+REQUIREMENTS_FILE = ROOT / "requirements.txt"
+VENV_DIR = ROOT / ".venv"
+VENV_STAMP = VENV_DIR / ".requirements.sha256"
 
 HOME = Path.home()
 if os.name == "nt":
