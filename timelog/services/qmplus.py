@@ -1,61 +1,46 @@
-#!/usr/bin/env python3
 from __future__ import annotations
 
 import datetime as dt
 import io
 import json
 import re
-import time
-import urllib.error
 import urllib.parse
-import urllib.request
 from html import unescape
 from typing import Any
 
 from bs4 import BeautifulSoup
 
-from timelog import paths
-from timelog.config import QMPLUS_BASE, QMPLUS_HOME, UA
-from timelog.server.modules.schemas import QmplusAuthRequired, QmplusError
-
-
-def read_session() -> dict[str, Any]:
-    data = paths.read_json(paths.QMPLUS_TOKENS_FILE, {})
-    return data if isinstance(data, dict) else {}
+from timelog.config import (
+    DEEP_SEARCH_MAX_FILES,
+    FETCH_MAX_FILES,
+    MAX_EXTRACTED_CHARS,
+    MAX_PAGE_CHARS,
+    QMPLUS_BASE,
+    QMPLUS_HOME,
+)
+from timelog.core import http
+from timelog.core.http import AuthRequired, ServiceError
+from timelog.core.session import QMPLUS_STORE
 
 
 def save_cookies(
     cookies: list[dict[str, Any]] | None,
     sesskey: str | None = None,
-    source: str = "browser",
+    source: str = "webview",
 ) -> dict[str, Any]:
-    wanted = {"MoodleSession", "MDL_SSP_AuthToken", "MDL_SSP_SessID", "MOODLEID1_"}
-    data = read_session()
-
-    for c in cookies or []:
-        if c.get("name") in wanted and c.get("value"):
-            data[c["name"]] = c["value"]
-
-    if sesskey:
-        data["sesskey"] = sesskey
-
-    data["saved_at"] = int(time.time())
-    data["source"] = source
-    paths.write_json(paths.QMPLUS_TOKENS_FILE, data, mode=0o600)
-
+    QMPLUS_STORE.save_cookies(cookies, extra={"sesskey": sesskey}, source=source)
     return session_state()
 
 
 def session_state() -> dict[str, Any]:
-    data = read_session()
+    data = QMPLUS_STORE.load()
     has = bool(data.get("MoodleSession"))
-
     return {
         "connected": has,
         "has_session": has,
         "saved_at": data.get("saved_at"),
         "sesskey": bool(data.get("sesskey")),
-        "tokens_file": str(paths.QMPLUS_TOKENS_FILE),
+        "tokens_file": str(QMPLUS_STORE.path),
     }
 
 
@@ -63,17 +48,54 @@ def _clean(text: str | None) -> str:
     return " ".join((text or "").split())
 
 
+def _filename_from_headers(headers: Any) -> str:
+    disposition = headers.get("Content-Disposition") or ""
+    match = re.search(r"filename\*?=(?:UTF-8''|)([^;]+)", disposition, re.I)
+    return urllib.parse.unquote(match.group(1).strip().strip('"')) if match else ""
+
+
+def extract_text(data: bytes, filename: str, content_type: str = "") -> str | None:
+    name = (filename or "").lower()
+    ctype = (content_type or "").lower()
+
+    try:
+        if name.endswith(".pdf") or "pdf" in ctype:
+            from pypdf import PdfReader
+
+            reader = PdfReader(io.BytesIO(data))
+            return "\n".join(page.extract_text() or "" for page in reader.pages[:100])[
+                :MAX_EXTRACTED_CHARS
+            ]
+
+        if name.endswith(".pptx") or "presentation" in ctype:
+            from pptx import Presentation
+
+            prs = Presentation(io.BytesIO(data))
+            parts = [
+                shape.text
+                for slide in prs.slides
+                for shape in slide.shapes
+                if hasattr(shape, "text") and shape.text
+            ]
+            return "\n".join(parts)[:MAX_EXTRACTED_CHARS]
+
+        if name.endswith((".txt", ".md", ".csv", ".json")):
+            return data.decode("utf-8", "replace")[:MAX_EXTRACTED_CHARS]
+    except Exception:
+        return None
+
+    return None
+
+
 class QmplusClient:
     def __init__(self) -> None:
-        self.data = read_session()
+        self.data = QMPLUS_STORE.load()
         self._sesskey: str | None = self.data.get("sesskey")
 
     @property
     def cookie(self) -> str:
         if not self.data.get("MoodleSession"):
-            raise QmplusAuthRequired(
-                "QMplus is not connected. Open the app and click 'Connect QMplus'."
-            )
+            raise AuthRequired("QMplus is not connected. Open the app and click 'Connect'.")
 
         return "; ".join(
             f"{k}={v}"
@@ -87,34 +109,25 @@ class QmplusClient:
         data: bytes | None = None,
         headers: dict[str, str] | None = None,
     ) -> tuple[int, str, Any, bytes]:
-        h = {"User-Agent": UA, "Cookie": self.cookie, "Referer": QMPLUS_HOME}
+        req_headers = {"Cookie": self.cookie, "Referer": QMPLUS_HOME}
         if headers:
-            h.update(headers)
+            req_headers.update(headers)
 
-        req = urllib.request.Request(
-            QMPLUS_BASE + path if path.startswith("/") else path,
+        url = QMPLUS_BASE + path if path.startswith("/") else path
+        method = "POST" if data is not None else "GET"
+        return http.request(
+            url,
+            method=method,
+            headers=req_headers,
             data=data,
-            headers=h,
+            auth_message="QMplus session rejected. Reconnect QMplus in the app.",
         )
-
-        try:
-            with urllib.request.urlopen(req, timeout=60) as resp:
-                return resp.status, resp.geturl(), resp.headers, resp.read()
-        except urllib.error.HTTPError as exc:
-            exc.read()
-            if exc.code in (401, 403):
-                raise QmplusAuthRequired(
-                    "QMplus session rejected. Reconnect QMplus in the app."
-                ) from None
-            raise QmplusError(f"HTTP {exc.code} on {path}") from None
-        except Exception as exc:
-            raise QmplusError(f"{type(exc).__name__}: {exc}") from None
 
     def _html(self, path: str) -> str:
         _, final, _, raw = self._request(path)
         text = raw.decode("utf-8", "replace")
         if "/login/" in final or "Log in to the site" in text:
-            raise QmplusAuthRequired("QMplus session expired. Reconnect QMplus.")
+            raise AuthRequired("QMplus session expired. Reconnect QMplus.")
         return text
 
     def sesskey(self) -> str:
@@ -123,16 +136,15 @@ class QmplusClient:
 
         match = re.search(r'"sesskey"\s*:\s*"([^"]+)"', self._html("/my/"))
         if not match:
-            raise QmplusError("Could not find QMplus sesskey")
+            raise ServiceError("Could not find QMplus sesskey")
 
         self._sesskey = match.group(1)
         self.data["sesskey"] = self._sesskey
-        paths.write_json(paths.QMPLUS_TOKENS_FILE, self.data, mode=0o600)
-
+        QMPLUS_STORE.save(self.data)
         return self._sesskey
 
     def _ajax(self, method: str, args: dict[str, Any]) -> Any:
-        body = json.dumps([{"index": 0, "methodname": method, "args": args}]).encode()
+        body = json.dumps([{"index": 0, "methodname": method, "args": args}]).encode("utf-8")
         _, _, _, raw = self._request(
             f"/lib/ajax/service.php?sesskey={self.sesskey()}",
             data=body,
@@ -146,7 +158,7 @@ class QmplusClient:
         try:
             payload = json.loads(raw.decode("utf-8"))
         except ValueError:
-            raise QmplusError("Invalid JSON from QMplus AJAX") from None
+            raise ServiceError("Invalid JSON from QMplus AJAX") from None
 
         if not payload:
             return None
@@ -154,8 +166,7 @@ class QmplusClient:
         first = payload[0]
         if first.get("error"):
             exc = first.get("exception") or {}
-            raise QmplusError(exc.get("message") or "QMplus AJAX error")
-
+            raise ServiceError(exc.get("message") or "QMplus AJAX error")
         return first.get("data")
 
     def courses(self) -> list[dict[str, Any]]:
@@ -170,7 +181,6 @@ class QmplusClient:
                 "customfieldvalue": "",
             },
         )
-
         return [
             {
                 "id": c.get("id"),
@@ -245,12 +255,10 @@ class QmplusClient:
                 act = self._parse_activity(li, sec_name)
                 if not (act["name"] or act["url"]):
                     continue
-
                 akey = (act["name"], act["url"])
                 if akey in seen_activities:
                     continue
                 seen_activities.add(akey)
-
                 sec_activities.append(act)
                 activities.append(act)
 
@@ -263,7 +271,6 @@ class QmplusClient:
             )
 
         if not activities:
-            # Fallback for unusual course formats.
             for li in soup.select("li.activity"):
                 act = self._parse_activity(li, "General")
                 if act["name"] or act["url"]:
@@ -285,13 +292,11 @@ class QmplusClient:
             for a in soup.select('a[href*="pluginfile.php"]')
             if a.get("href")
         ]
-
         for tag, attr in (("iframe", "src"), ("object", "data"), ("embed", "src")):
             for node in soup.select(f"{tag}[{attr}*='pluginfile.php']"):
                 val = node.get(attr)
                 if val:
                     out.append({"name": "", "url": str(val)})
-
         return out
 
     def activity_files(self, activity: dict[str, Any]) -> list[dict[str, Any]]:
@@ -301,13 +306,12 @@ class QmplusClient:
 
         if not url or modname not in ("resource", "folder", "page", "book", "url"):
             return files
-
         if modname == "url":
             return files + [{"name": activity.get("name", ""), "url": url, "link": True}]
 
         try:
             _, final, headers, raw = self._request(url)
-        except QmplusError:
+        except ServiceError:
             return files
 
         ctype = (headers.get("Content-Type") or "").lower()
@@ -317,11 +321,10 @@ class QmplusClient:
 
         soup = BeautifulSoup(raw.decode("utf-8", "replace"), "html.parser")
         seen = {f.get("url") for f in files}
-        for f in self._extract_links(soup):
-            if f["url"] not in seen:
-                files.append(f)
-                seen.add(f["url"])
-
+        for item in self._extract_links(soup):
+            if item["url"] not in seen:
+                files.append(item)
+                seen.add(item["url"])
         return files
 
     def download(self, url: str) -> dict[str, Any]:
@@ -329,7 +332,6 @@ class QmplusClient:
         name = _filename_from_headers(headers) or urllib.parse.unquote(
             url.split("?")[0].rsplit("/", 1)[-1]
         )
-
         return {
             "filename": name,
             "content_type": headers.get("Content-Type"),
@@ -339,10 +341,10 @@ class QmplusClient:
         }
 
     def fetch_url(self, url: str) -> dict[str, Any]:
-        if url and url.startswith("/"):
+        if url.startswith("/"):
             url = QMPLUS_BASE + url
         if not url:
-            raise QmplusError("No URL supplied")
+            raise ServiceError("No URL supplied")
 
         _, final, headers, raw = self._request(url)
         ctype = (headers.get("Content-Type") or "").lower()
@@ -360,15 +362,14 @@ class QmplusClient:
 
         soup = BeautifulSoup(raw.decode("utf-8", "replace"), "html.parser")
         files: list[dict[str, Any]] = []
-        for f in self._extract_links(soup)[:8]:
+        for item in self._extract_links(soup)[:FETCH_MAX_FILES]:
             try:
-                got = self.download(f["url"])
-            except QmplusError:
+                got = self.download(item["url"])
+            except ServiceError:
                 continue
-
             files.append(
                 {
-                    "name": f.get("name") or got["filename"],
+                    "name": item.get("name") or got["filename"],
                     "url": got["url"],
                     "content_type": got["content_type"],
                     "size": got["size"],
@@ -382,7 +383,7 @@ class QmplusClient:
             "type": "page",
             "title": title[:160],
             "url": url,
-            "text": _clean(soup.get_text(" ", strip=True))[:20000],
+            "text": _clean(soup.get_text(" ", strip=True))[:MAX_PAGE_CHARS],
             "files": files,
         }
 
@@ -395,7 +396,7 @@ class QmplusClient:
     ) -> dict[str, Any]:
         q = (query or "").strip().lower()
         if not q:
-            raise QmplusError("Search query is empty")
+            raise ServiceError("Search query is empty")
 
         contents = self.course_contents(course_id)
         results: list[dict[str, Any]] = []
@@ -410,7 +411,6 @@ class QmplusClient:
                         "snippet": "",
                     }
                 )
-
             for act in section["activities"]:
                 hay = f'{act["name"]} {act.get("description", "")}'.lower()
                 if q in hay:
@@ -429,32 +429,28 @@ class QmplusClient:
             checked = 0
             for section in contents["sections"]:
                 for act in section["activities"]:
-                    if checked >= 12 or len(results) >= limit:
+                    if checked >= DEEP_SEARCH_MAX_FILES or len(results) >= limit:
                         break
-
-                    for f in self.activity_files(act):
-                        if checked >= 12 or len(results) >= limit:
+                    for item in self.activity_files(act):
+                        if checked >= DEEP_SEARCH_MAX_FILES or len(results) >= limit:
                             break
-                        if f.get("link"):
+                        if item.get("link"):
                             continue
-
                         try:
-                            got = self.download(f["url"])
-                        except QmplusError:
+                            got = self.download(item["url"])
+                        except ServiceError:
                             continue
-
                         text = extract_text(got["data"], got["filename"], got["content_type"])
                         checked += 1
-
                         if text and q in text.lower():
                             idx = text.lower().find(q)
                             results.append(
                                 {
                                     "type": "file",
                                     "section": section["name"],
-                                    "name": f.get("name") or got["filename"],
+                                    "name": item.get("name") or got["filename"],
                                     "url": got["url"],
-                                    "snippet": _clean(text[max(0, idx - 120):idx + 240]),
+                                    "snippet": _clean(text[max(0, idx - 120) : idx + 240]),
                                 }
                             )
 
@@ -478,7 +474,6 @@ class QmplusClient:
                 "mini": False,
             },
         )
-
         return [
             {
                 "name": _clean(ev.get("name")),
@@ -495,67 +490,70 @@ class QmplusClient:
             for ev in day.get("events", [])
         ]
 
-    def current_lecture(self) -> dict[str, Any]:
-        from timelog.server.modules import calendar as ombiel_calendar
-
-        today = dt.date.today()
-        try:
-            events = ombiel_calendar.CalendarClient().range_events(
-                today.isoformat(), today.isoformat()
-            )
-        except Exception:
-            events = []
-
-        now = dt.datetime.now().astimezone()
-        current: dict[str, Any] | None = None
-        upcoming: dict[str, Any] | None = None
-
-        for e in events:
-            try:
-                start = dt.datetime.fromisoformat(e["start"])
-                end = dt.datetime.fromisoformat(e["end"]) if e.get("end") else start
-            except Exception:
-                continue
-
-            if start <= now <= end:
-                current = e
-                break
-            if start > now and (
-                upcoming is None or start < dt.datetime.fromisoformat(upcoming["start"])
-            ):
-                upcoming = e
-
-        event = current or upcoming
-        if not event:
-            return {"ok": False, "error": "No current or upcoming class found in CampusM today."}
-
-        code_match = re.search(r"\b([A-Z]{2,4}\d{3,4}[A-Z]?)\b", event.get("title", ""))
-        code = code_match.group(1) if code_match else ""
+    def _find_course(self, title: str, code: str) -> dict[str, Any] | None:
         courses = self.courses()
-
-        course = next(
-            (
-                c
-                for c in courses
-                if code
-                and code.upper()
-                in f'{c.get("code", "")} {c.get("shortname", "")} {c.get("name", "")}'.upper()
-            ),
-            None,
-        )
-        if course is None:
-            words = [w for w in re.split(r"\W+", event.get("title", "")) if len(w) > 4][:4]
-            course = next(
+        if code:
+            match = next(
                 (
                     c
                     for c in courses
-                    if all(
-                        w.lower() in (c.get("name", "") + c.get("shortname", "")).lower()
-                        for w in words
-                    )
+                    if code.upper()
+                    in f'{c.get("code", "")} {c.get("shortname", "")} {c.get("name", "")}'.upper()
                 ),
                 None,
             )
+            if match is not None:
+                return match
+
+        words = [w for w in re.split(r"\W+", title) if len(w) > 4][:4]
+        return next(
+            (
+                c
+                for c in courses
+                if all(
+                    w.lower() in (c.get("name", "") + c.get("shortname", "")).lower()
+                    for w in words
+                )
+            ),
+            None,
+        )
+
+    def _find_section(
+        self,
+        sections: list[dict[str, Any]],
+        week: str | None,
+        keywords: list[str],
+    ) -> dict[str, Any] | None:
+        if week:
+            found = next(
+                (
+                    s
+                    for s in sections
+                    if re.search(rf"Week\s+{re.escape(week)}\b", s["name"], re.I)
+                ),
+                None,
+            )
+            if found is not None:
+                return found
+
+        found = next(
+            (
+                s
+                for s in sections
+                if any(k in s["name"].lower() for k in keywords if len(k) > 3)
+            ),
+            None,
+        )
+        if found is not None:
+            return found
+
+        return next((s for s in reversed(sections) if s["activities"]), None)
+
+    def match_event(self, event: dict[str, Any]) -> dict[str, Any]:
+        title = event.get("title", "")
+        code_match = re.search(r"\b([A-Z]{2,4}\d{3,4}[A-Z]?)\b", title)
+        code = code_match.group(1) if code_match else ""
+        course = self._find_course(title, code)
 
         out: dict[str, Any] = {
             "ok": True,
@@ -571,10 +569,9 @@ class QmplusClient:
 
         contents = self.course_contents(course["id"])
         week = None
-
-        try:
-            event_day = (event.get("start") or "")[:10]
-            if event_day:
+        event_day = (event.get("start") or "")[:10]
+        if event_day:
+            try:
                 day = dt.date.fromisoformat(event_day)
                 for qe in self.calendar_events(day.year, day.month, course["id"]):
                     if (qe.get("start") or "")[:10] == event_day:
@@ -582,88 +579,26 @@ class QmplusClient:
                         if match:
                             week = match.group(1)
                             break
-        except Exception:
-            pass
+            except Exception:
+                pass
 
-        title = event.get("title", "").lower()
         keywords = [
             w
-            for w in re.split(r"\W+", title)
+            for w in re.split(r"\W+", title.lower())
             if w in ("lab", "lecture", "seminar", "workshop") or w.isdigit()
         ]
-
-        best = None
-        if week:
-            best = next(
-                (
-                    s
-                    for s in contents["sections"]
-                    if re.search(rf"Week\s+{re.escape(week)}\b", s["name"], re.I)
-                ),
-                None,
-            )
-        if best is None:
-            best = next(
-                (
-                    s
-                    for s in contents["sections"]
-                    if any(k in s["name"].lower() for k in keywords if len(k) > 3)
-                ),
-                None,
-            )
-        if best is None:
-            best = next((s for s in reversed(contents["sections"]) if s["activities"]), None)
-
+        best = self._find_section(contents["sections"], week, keywords)
         if best:
             out["section"] = best
             acts = best["activities"]
             out["activities"] = [
                 a for a in acts if any(k in a["name"].lower() for k in keywords if len(k) > 3)
             ] or acts[:8]
-
             for act in out["activities"][:5]:
-                for f in self.activity_files(act)[:4]:
-                    out["files"].append({"activity": act["name"], **f})
+                for item in self.activity_files(act)[:4]:
+                    out["files"].append({"activity": act["name"], **item})
 
         out["course_url"] = contents["url"]
         out["section_count"] = len(contents["sections"])
         out["week"] = week
-
         return out
-
-
-def _filename_from_headers(headers: Any) -> str:
-    disposition = headers.get("Content-Disposition") or ""
-    match = re.search(r"filename\*?=(?:UTF-8''|)([^;]+)", disposition, re.I)
-    return urllib.parse.unquote(match.group(1).strip().strip('"')) if match else ""
-
-
-def extract_text(data: bytes, filename: str, content_type: str = "") -> str | None:
-    name = (filename or "").lower()
-    ctype = (content_type or "").lower()
-
-    try:
-        if name.endswith(".pdf") or "pdf" in ctype:
-            from pypdf import PdfReader
-
-            reader = PdfReader(io.BytesIO(data))
-            return "\n".join(page.extract_text() or "" for page in reader.pages[:100])[:60000]
-
-        if name.endswith(".pptx") or "presentation" in ctype:
-            from pptx import Presentation
-
-            prs = Presentation(io.BytesIO(data))
-            parts = [
-                shape.text
-                for slide in prs.slides
-                for shape in slide.shapes
-                if hasattr(shape, "text") and shape.text
-            ]
-            return "\n".join(parts)[:60000]
-
-        if name.endswith((".txt", ".md", ".csv", ".json")):
-            return data.decode("utf-8", "replace")[:60000]
-    except Exception:
-        return None
-
-    return None

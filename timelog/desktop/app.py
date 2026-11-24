@@ -1,39 +1,40 @@
 from __future__ import annotations
 
-import os
 import sys
 import time
 
 import webview
 
 from timelog import paths
-from timelog.config import UA
-from timelog.desktop.bridge import Api, ICON_FILE, MCP_SERVER, UI_FILE
+from timelog.config import APP_TITLE, MAIN_WINDOW, UA
+from timelog.desktop.bridge import Api
 
 
 def main() -> int:
     if "--check" in sys.argv:
-        ok = os.path.exists(UI_FILE) and (paths.FROZEN or os.path.exists(MCP_SERVER))
-        import timelog.browser.auth  # noqa: F401
-        import timelog.integrations  # noqa: F401
-        import timelog.server.modules.client  # noqa: F401
-        import timelog.updater  # noqa: F401
+        ok = paths.UI_FILE.exists() and (paths.FROZEN or paths.APP_SCRIPT.exists())
+        import timelog.auth  # noqa: F401
+        import timelog.mcp.clients  # noqa: F401
+        import timelog.mcp.server  # noqa: F401
+        import timelog.services.timelog  # noqa: F401
 
-        print("ui:", "ok" if os.path.exists(UI_FILE) else "MISSING")
+        print("ui:", "ok" if paths.UI_FILE.exists() else "MISSING")
         print("check:", "ok" if ok else "failed")
         return 0 if ok else 1
 
+    paths.ensure_data_dir()
+
     api = Api()
     window = webview.create_window(
-        "Timelog",
-        url=UI_FILE,
+        APP_TITLE,
+        url=str(paths.UI_FILE),
         js_api=api,
-        width=700,
-        height=640,
-        min_size=(500, 440),
+        width=MAIN_WINDOW["width"],
+        height=MAIN_WINDOW["height"],
+        min_size=MAIN_WINDOW["min_size"],
         frameless=True,
         easy_drag=False,
-        background_color="#141416",
+        background_color=MAIN_WINDOW["bg"],
     )
     api._window = window
 
@@ -48,7 +49,7 @@ def main() -> int:
         "private_mode": False,
         "storage_path": str(paths.PROFILE_DIR),
         "user_agent": UA,
-        "icon": ICON_FILE if os.path.exists(ICON_FILE) else None,
+        "icon": str(paths.ICON_FILE) if paths.ICON_FILE.exists() else None,
     }
 
     if "--smoke" in sys.argv:
@@ -59,7 +60,6 @@ def main() -> int:
 
             print("smoke ui:", "ready" if api._ui_ready else "timeout", flush=True)
             time.sleep(0.6)
-
             try:
                 window.destroy()
             except Exception:

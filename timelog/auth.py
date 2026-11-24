@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 from __future__ import annotations
 
 import argparse
@@ -12,20 +11,17 @@ import webview
 from timelog import paths
 from timelog.config import (
     API_ORIGIN,
-    OMBIEL_HOME,
-    QMPLUS_LOGIN,
+    AUTH_SERVICES,
+    AUTH_TIMEOUT_S,
+    AUTH_WINDOW,
+    POLL_INTERVAL_S,
+    REFRESH_TIMEOUT_S,
     TIMELOG_START_URL,
     UA,
-    WINDOW_SIZE,
 )
-from timelog.server.modules import calendar as ombiel_calendar
-from timelog.server.modules import qmplus as qmplus_client
-
-SERVICES: dict[str, tuple[str, str]] = {
-    "session": ("Sign in — OneAdvanced", TIMELOG_START_URL),
-    "ombiel": ("Sign in — CampusM", OMBIEL_HOME),
-    "qmplus": ("Sign in — QMplus", QMPLUS_LOGIN),
-}
+from timelog.services import calendar as calendar_svc
+from timelog.services import qmplus as qmplus_svc
+from timelog.services import timelog as timelog_svc
 
 _REFRESHAUTH_JS = (
     "(() => {"
@@ -85,109 +81,94 @@ def read_cookies(window: Any) -> list[dict[str, str]]:
     return out
 
 
-def _save_timelog_cookies(cookies: list[dict[str, str]]) -> bool:
-    by_name = {c["name"]: c["value"] for c in cookies if c.get("name") and c.get("value")}
-    access = by_name.get("ACCESS_TOKEN")
-    refresh = by_name.get("REFRESH_TOKEN")
-    if not access:
-        return False
-
-    data = paths.read_json(paths.TOKENS_FILE, {}) or {}
-    data["access_token"] = access
-    if refresh:
-        data["refresh_token"] = refresh
-    elif data.get("refresh_token") and paths.jwt_exp(data["refresh_token"]) <= time.time():
-        data["refresh_token"] = None
-
-    data["obtained_at"] = int(time.time())
-    data["source"] = "webview"
-    paths.write_json(paths.TOKENS_FILE, data)
-    return True
-
-
-def _poll_session(window: Any, stop: threading.Event, timeout_s: int) -> bool:
+def _poll(
+    window: Any,
+    stop: threading.Event,
+    timeout_s: int,
+    check_fn: Callable[[Any], bool],
+) -> bool:
     deadline = time.time() + timeout_s
     while not stop.is_set() and time.time() < deadline:
         try:
-            url = window.get_current_url() or ""
-            if url.startswith(API_ORIGIN) and window.evaluate_js(_REFRESHAUTH_JS) == 200:
-                if _save_timelog_cookies(read_cookies(window)):
-                    return True
-        except Exception:
-            pass
-        stop.wait(1.5)
-
-    return False
-
-
-def _poll_ombiel(window: Any, stop: threading.Event, timeout_s: int) -> bool:
-    deadline = time.time() + timeout_s
-    clicked_profile = False
-
-    while not stop.is_set() and time.time() < deadline:
-        try:
-            url = window.get_current_url() or ""
-            if not clicked_profile and "select-profile" in url:
-                clicked_profile = bool(window.evaluate_js(_CLICK_PROFILE_JS))
-
-            cookies = read_cookies(window)
-            token = next((c["value"] for c in cookies if c["name"] == "cmAuthToken"), "")
-            if len(token) > 200:
-                ombiel_calendar.save_cookies(cookies, source="webview")
-                if ombiel_calendar.CalendarClient().calendars():
-                    return True
-        except Exception:
-            pass
-        stop.wait(1.5)
-
-    return False
-
-
-def _poll_qmplus(window: Any, stop: threading.Event, timeout_s: int) -> bool:
-    deadline = time.time() + timeout_s
-    clicked_saml = False
-
-    while not stop.is_set() and time.time() < deadline:
-        try:
-            url = window.get_current_url() or ""
-            if not clicked_saml and "/login/" in url:
-                clicked_saml = bool(window.evaluate_js(_CLICK_SAML_JS))
-
-            if window.evaluate_js(_QMPLUS_LOGGED_IN_JS):
-                sesskey = window.evaluate_js(_QMPLUS_SESSKEY_JS) or None
-                qmplus_client.save_cookies(read_cookies(window), sesskey=sesskey, source="webview")
+            if check_fn(window):
                 return True
         except Exception:
             pass
-        stop.wait(1.5)
-
+        stop.wait(POLL_INTERVAL_S)
     return False
 
 
-_POLLERS: dict[str, Callable[[Any, threading.Event, int], bool]] = {
-    "session": _poll_session,
-    "ombiel": _poll_ombiel,
-    "qmplus": _poll_qmplus,
+def _timelog_checker() -> Callable[[Any], bool]:
+    def _check(window: Any) -> bool:
+        url = window.get_current_url() or ""
+        if url.startswith(API_ORIGIN) and window.evaluate_js(_REFRESHAUTH_JS) == 200:
+            return timelog_svc.save_cookies(read_cookies(window))
+        return False
+
+    return _check
+
+
+def _calendar_checker() -> Callable[[Any], bool]:
+    clicked_profile = False
+
+    def _check(window: Any) -> bool:
+        nonlocal clicked_profile
+        url = window.get_current_url() or ""
+        if not clicked_profile and "select-profile" in url:
+            clicked_profile = bool(window.evaluate_js(_CLICK_PROFILE_JS))
+
+        cookies = read_cookies(window)
+        token = next((c["value"] for c in cookies if c["name"] == "cmAuthToken"), "")
+        if len(token) > 200:
+            calendar_svc.save_cookies(cookies, source="webview")
+            return bool(calendar_svc.CalendarClient().calendars())
+        return False
+
+    return _check
+
+
+def _qmplus_checker() -> Callable[[Any], bool]:
+    clicked_saml = False
+
+    def _check(window: Any) -> bool:
+        nonlocal clicked_saml
+        url = window.get_current_url() or ""
+        if not clicked_saml and "/login/" in url:
+            clicked_saml = bool(window.evaluate_js(_CLICK_SAML_JS))
+
+        if window.evaluate_js(_QMPLUS_LOGGED_IN_JS):
+            sesskey = window.evaluate_js(_QMPLUS_SESSKEY_JS) or None
+            qmplus_svc.save_cookies(read_cookies(window), sesskey=sesskey, source="webview")
+            return True
+        return False
+
+    return _check
+
+
+_CHECKERS: dict[str, Callable[[], Callable[[Any], bool]]] = {
+    "timelog": _timelog_checker,
+    "calendar": _calendar_checker,
+    "qmplus": _qmplus_checker,
 }
 
 
 def open_login_window(
     service: str,
     *,
-    timeout_s: int = 1800,
+    timeout_s: int = AUTH_TIMEOUT_S,
     on_done: Callable[[bool], None] | None = None,
 ) -> Any:
-    title, url = SERVICES[service]
-    poller = _POLLERS[service]
+    title, url = AUTH_SERVICES[service]
+    check_fn = _CHECKERS[service]()
     stop = threading.Event()
     finished = threading.Event()
 
     window = webview.create_window(
         title,
         url=url,
-        width=WINDOW_SIZE,
-        height=WINDOW_SIZE,
-        min_size=(460, 460),
+        width=AUTH_WINDOW["width"],
+        height=AUTH_WINDOW["height"],
+        min_size=AUTH_WINDOW["min_size"],
     )
 
     def _on_closed() -> None:
@@ -199,7 +180,7 @@ def open_login_window(
     window.events.closed += _on_closed
 
     def _watch() -> None:
-        ok = poller(window, stop, timeout_s)
+        ok = _poll(window, stop, timeout_s, check_fn)
         if not finished.is_set():
             finished.set()
             if on_done:
@@ -214,10 +195,11 @@ def open_login_window(
     return window
 
 
-def refresh_once(timeout_s: int = 20) -> bool:
+def refresh_once(timeout_s: int = REFRESH_TIMEOUT_S) -> bool:
     paths.ensure_data_dir()
     ok_box = [False]
     stop = threading.Event()
+    check_fn = _timelog_checker()
 
     window = webview.create_window(
         "Timelog Refresh",
@@ -228,7 +210,7 @@ def refresh_once(timeout_s: int = 20) -> bool:
     )
 
     def _run() -> None:
-        ok_box[0] = _poll_session(window, stop, timeout_s)
+        ok_box[0] = _poll(window, stop, timeout_s, check_fn)
         try:
             window.destroy()
         except Exception:
@@ -246,8 +228,8 @@ def refresh_once(timeout_s: int = 20) -> bool:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Native WebView auth helper")
-    ap.add_argument("service", choices=["session", "ombiel", "qmplus", "refresh"])
-    ap.add_argument("--timeout", type=int, default=1800)
+    ap.add_argument("service", choices=["timelog", "calendar", "qmplus", "refresh"])
+    ap.add_argument("--timeout", type=int, default=AUTH_TIMEOUT_S)
     args = ap.parse_args(argv)
 
     if args.service == "refresh":

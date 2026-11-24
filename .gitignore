@@ -1,4 +1,4 @@
-# --- credentials / sessions: never commit ---
+# --- credentials ---
 tokens.json
 tokens.json.tmp
 .browser-profile/
