@@ -5,11 +5,12 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Callable
 
 from timelog.config import CREATE_NO_WINDOW, REPO_BRANCH, REPO_URL
-from timelog.paths import ICON_FILE, REQUIREMENTS_FILE, ROOT, VENV_DIR, VENV_STAMP
+from timelog.paths import APP_SCRIPT, ICON_FILE, REQUIREMENTS_FILE, ROOT, VENV_DIR, VENV_STAMP
 
 
 def venv_python() -> Path:
@@ -40,31 +41,6 @@ def _find_git() -> str | None:
     return None
 
 
-def _install_git(status: Callable[[str], None]) -> str | None:
-    status("Git not found. Installing Git...")
-    if os.name == "nt" and shutil.which("winget"):
-        subprocess.run(
-            [
-                "winget",
-                "install",
-                "--id",
-                "Git.Git",
-                "-e",
-                "--source",
-                "winget",
-                "--accept-package-agreements",
-                "--accept-source-agreements",
-            ],
-            check=False,
-            creationflags=CREATE_NO_WINDOW,
-        )
-    elif sys.platform == "darwin" and shutil.which("brew"):
-        subprocess.run(["brew", "install", "git"], check=False)
-    elif sys.platform == "darwin":
-        subprocess.run(["xcode-select", "--install"], check=False)
-    return _find_git()
-
-
 def _run_git(git_bin: str, *args: str, timeout: int = 20) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [git_bin, *args],
@@ -76,11 +52,52 @@ def _run_git(git_bin: str, *args: str, timeout: int = 20) -> subprocess.Complete
     )
 
 
+def stop_running_app() -> None:
+    if os.name == "nt":
+        app = str(APP_SCRIPT).replace("'", "''")
+        venv = str(VENV_DIR).replace("'", "''")
+        script = (
+            "Get-CimInstance Win32_Process | Where-Object { "
+            f"$_.ProcessId -ne {os.getpid()} -and "
+            f"($_.CommandLine -like '*{app}*' -or $_.ExecutablePath -like '*{venv}*') "
+            "} | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
+        )
+        subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+            creationflags=CREATE_NO_WINDOW,
+        )
+    else:
+        subprocess.run(
+            ["pkill", "-f", str(APP_SCRIPT)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+    time.sleep(0.3)
+
+
 def update_via_git(status: Callable[[str], None]) -> None:
     status("Checking for updates...")
     git_bin = _find_git()
     if not git_bin:
-        git_bin = _install_git(status)
+        status("Git not found. Installing Git...")
+        if os.name == "nt" and shutil.which("winget"):
+            subprocess.run(
+                [
+                    "winget", "install", "--id", "Git.Git", "-e", "--source", "winget",
+                    "--accept-package-agreements", "--accept-source-agreements",
+                ],
+                check=False,
+                creationflags=CREATE_NO_WINDOW,
+            )
+        elif sys.platform == "darwin" and shutil.which("brew"):
+            subprocess.run(["brew", "install", "git"], check=False)
+        elif sys.platform == "darwin":
+            subprocess.run(["xcode-select", "--install"], check=False)
+        git_bin = _find_git()
     if not git_bin:
         status("Git unavailable; skipping update check.")
         return
@@ -92,6 +109,7 @@ def update_via_git(status: Callable[[str], None]) -> None:
             _run_git(git_bin, "remote", "add", "origin", REPO_URL)
             fetch = _run_git(git_bin, "fetch", "origin", REPO_BRANCH, timeout=30)
             if fetch.returncode == 0:
+                stop_running_app()
                 _run_git(git_bin, "reset", "--hard", f"origin/{REPO_BRANCH}")
                 status("Up to date.")
             else:
@@ -107,6 +125,7 @@ def update_via_git(status: Callable[[str], None]) -> None:
         remote = _run_git(git_bin, "rev-parse", f"origin/{REPO_BRANCH}").stdout.strip()
         if local and remote and local != remote:
             status("Downloading update...")
+            stop_running_app()
             pull = _run_git(git_bin, "pull", "--ff-only", "origin", REPO_BRANCH, timeout=30)
             if pull.returncode == 0:
                 status("Updated to latest version.")
@@ -121,6 +140,7 @@ def update_via_git(status: Callable[[str], None]) -> None:
 def ensure_venv(status: Callable[[str], None]) -> bool:
     if not venv_python().exists() or not (VENV_DIR / "pyvenv.cfg").exists():
         status("Creating virtual environment...")
+        stop_running_app()
         shutil.rmtree(VENV_DIR, ignore_errors=True)
         subprocess.run(
             [sys.executable, "-m", "venv", str(VENV_DIR)],
@@ -144,6 +164,7 @@ def ensure_venv(status: Callable[[str], None]) -> bool:
 
     if stamped != req_hash or not imports_ok:
         status("Installing dependencies (first run may take a minute)...")
+        stop_running_app()
         subprocess.run(
             [str(venv_python()), "-m", "pip", "install", "--upgrade", "pip"],
             check=False,
