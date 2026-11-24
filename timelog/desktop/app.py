@@ -40,7 +40,6 @@ def main() -> int:
 
     def on_closed() -> None:
         api.stop_keepalive()
-        api.stop_mcp()
 
     window.events.closed += on_closed
 

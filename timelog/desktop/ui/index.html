@@ -66,31 +66,6 @@
         <div id="targetList" class="card-list"></div>
       </section>
 
-      <section class="card server-card" aria-labelledby="serverTitle">
-        <div class="server-row">
-          <span class="row-symbol" aria-hidden="true"><span data-icon="server"></span></span>
-          <div class="row-main">
-            <div class="row-heading">
-              <span class="row-title" id="serverTitle">Local HTTP server</span>
-            </div>
-            <p id="serverNote" class="row-detail">Most AI apps start Timelog automatically. Only run this for clients that connect over HTTP.</p>
-          </div>
-          <div class="row-actions">
-            <span id="serverSummary" class="badge" data-s="off"><span class="badge-dot" aria-hidden="true"></span>Optional</span>
-            <button id="serverToggle" class="switch" type="button" role="switch" aria-checked="false" aria-label="Local HTTP server">
-              <span class="switch-knob" aria-hidden="true"></span>
-            </button>
-          </div>
-        </div>
-        <div class="endpoint-wrap" id="endpointBar" hidden>
-          <div class="endpoint-bar">
-            <span id="serverDot" class="dot" data-s="ok"></span>
-            <code id="serverAddress">http://127.0.0.1:8765/mcp</code>
-            <button id="copyServerBtn" class="btn btn-secondary btn-xs" type="button"><span data-icon="copy"></span>Copy</button>
-          </div>
-        </div>
-      </section>
-
       <footer class="page-foot">
         <span><span data-icon="lock"></span>Credentials stay on this device</span>
         <button id="dataFolderBtn" class="text-btn" type="button">Open data folder<span data-icon="arrow-up-right"></span></button>

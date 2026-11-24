@@ -4,7 +4,7 @@
 </h1>
 
 <p align="center">
-Desktop companion app and <a href="https://modelcontextprotocol.io/">Model Context Protocol (MCP)</a> server for logging Off-the-Job (OTJ) training entries on <strong>OneAdvanced Cloud Education</strong>, with <strong>QMUL Timetable (Ombiel)</strong> and <strong>QMplus</strong> integration.
+Desktop companion app and MCP for logging OTJ training & allowing agents to interact with lecture material or documents
 </p>
 
 <p align="center">

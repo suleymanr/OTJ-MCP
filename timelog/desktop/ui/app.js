@@ -27,7 +27,6 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "
 const S = {
   boot: null,
   targets: [],
-  mcp: null,
   qmplusValid: undefined,
   qmplusTried: false,
   error: "",
@@ -37,7 +36,6 @@ const S = {
   pendingSource: null,
   pendingTarget: null,
   refreshing: false,
-  serverBusy: false,
   keepalive: false,
   polling: false,
   lastKey: "",
@@ -472,25 +470,6 @@ function renderAi() {
   } else {
     $("#targetList").innerHTML = found.map(targetRow).join("");
   }
-
-  const running = !!(S.mcp && S.mcp.running);
-  const toggle = $("#serverToggle");
-  toggle.setAttribute("aria-checked", running ? "true" : "false");
-  toggle.disabled = !!S.error || S.serverBusy;
-
-  setBadge(
-    $("#serverSummary"),
-    S.serverBusy ? "Updating…" : running ? "Running" : "Optional",
-    S.serverBusy ? "warn" : running ? "ok" : "off",
-    S.serverBusy
-  );
-  $("#serverNote").textContent = running
-    ? "Available to clients that connect over HTTP. Keep Timelog open while the server is in use."
-    : "Most AI apps start Timelog automatically. Only run this for clients that connect over HTTP.";
-  $("#endpointBar").hidden = !running;
-  $("#serverAddress").textContent = running
-    ? (S.mcp.url || `http://127.0.0.1:${S.mcp.port}/mcp`)
-    : "Server stopped";
 }
 
 function renderAll() {
@@ -536,7 +515,7 @@ async function setTarget(id, remove) {
   S.pendingTarget = id;
   renderAll();
 
-  const result = remove ? await call("remove_servers", [id]) : await call("install", [id], "stdio");
+  const result = remove ? await call("remove_servers", [id]) : await call("install", [id]);
   const detail = (result && result.results && result.results[0]) || null;
   const ok = result && result.ok && (!detail || detail.ok);
 
@@ -561,29 +540,6 @@ async function setTarget(id, remove) {
   const targets = await call("targets");
   if (targets && targets.targets) S.targets = targets.targets;
   S.pendingTarget = null;
-  renderAll();
-}
-
-async function toggleServer() {
-  if (S.serverBusy) return;
-  const running = !!(S.mcp && S.mcp.running);
-  const defaultPort = (S.boot && S.boot.config && S.boot.config.port) || 8765;
-
-  S.serverBusy = true;
-  renderAll();
-
-  const result = running ? await call("stop_mcp") : await call("start_mcp", defaultPort);
-  if (!result || !result.ok) {
-    toast(
-      "bad",
-      running ? "Couldn't stop the server" : "Couldn't start the server",
-      (result && result.error) || "Try again."
-    );
-  }
-
-  const state = await call("mcp_state");
-  if (state && typeof state.running === "boolean") S.mcp = state;
-  S.serverBusy = false;
   renderAll();
 }
 
@@ -670,7 +626,6 @@ function bootKey(boot) {
     boot.timelog,
     boot.calendar,
     boot.qmplus,
-    boot.mcp,
     boot.targets,
     S.qmplusValid !== false
   ]);
@@ -696,7 +651,6 @@ async function checkQmplus() {
 function applyBoot(boot) {
   S.boot = boot;
   S.targets = boot.targets || [];
-  S.mcp = boot.mcp || {};
   S.error = "";
   renderAll();
   if (boot.qmplus && boot.qmplus.connected) checkQmplus();
@@ -768,23 +722,7 @@ function bind() {
   $("#minBtn").addEventListener("click", () => call("minimize"));
   $("#closeBtn").addEventListener("click", () => call("close"));
   $("#refreshBtn").addEventListener("click", refresh);
-  $("#serverToggle").addEventListener("click", toggleServer);
   $("#copyPromptBtn").addEventListener("click", copyPrompt);
-
-  $("#copyServerBtn").addEventListener("click", async () => {
-    if (!S.mcp || !S.mcp.running) return;
-    const button = $("#copyServerBtn");
-    const url = S.mcp.url || `http://127.0.0.1:${S.mcp.port}/mcp`;
-    const copied = await copyText(url);
-    if (!copied) {
-      toast("bad", "Couldn't copy the address");
-      return;
-    }
-    button.innerHTML = `<span data-icon="check">${icon("check")}</span>Copied`;
-    setTimeout(() => {
-      button.innerHTML = `<span data-icon="copy">${icon("copy")}</span>Copy`;
-    }, 1800);
-  });
 
   $("#dataFolderBtn").addEventListener("click", async () => {
     const info = await call("app_info");

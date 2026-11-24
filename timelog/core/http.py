@@ -2,12 +2,11 @@ from __future__ import annotations
 
 import json
 import os
-import socket
 import urllib.error
 import urllib.request
 from typing import Any
 
-from timelog.config import HTTP_TIMEOUT_S, MCP_HOST, UA
+from timelog.config import HTTP_TIMEOUT_S, UA
 
 
 class ServiceError(RuntimeError):
@@ -24,14 +23,6 @@ def err_text(exc: Exception) -> str:
 
 def subprocess_flags() -> int:
     return 0x08000000 if os.name == "nt" else 0
-
-
-def port_open(port: int, host: str = MCP_HOST, timeout: float = 0.35) -> bool:
-    try:
-        with socket.create_connection((host, port), timeout=timeout):
-            return True
-    except OSError:
-        return False
 
 
 def request(

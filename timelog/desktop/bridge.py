@@ -13,11 +13,9 @@ from timelog import paths
 from timelog.config import (
     APP_VERSION,
     AUTH_SERVICES,
-    DEFAULT_PORT,
     KEEPALIVE_INTERVAL_S,
     MCP_SERVER_NAME,
     MCP_TOOL_NAMES,
-    mcp_http_url,
 )
 from timelog.core import http
 from timelog.mcp import clients as mcp_clients
@@ -29,8 +27,6 @@ from timelog.services import timelog as timelog_svc
 class Api:
     def __init__(self) -> None:
         self._window: Any = None
-        self._mcp_proc: subprocess.Popen[bytes] | None = None
-        self._mcp_port: int = DEFAULT_PORT
         self._keepalive_stop: threading.Event | None = None
         self._login_running: dict[str, bool] = {key: False for key in AUTH_SERVICES}
         self._ui_ready: bool = False
@@ -46,7 +42,6 @@ class Api:
 
     def close(self) -> dict[str, bool]:
         self.stop_keepalive()
-        self.stop_mcp()
         if self._window:
             self._window.destroy()
         return {"ok": True}
@@ -130,95 +125,13 @@ class Api:
             "calendar": self.calendar_state(),
             "qmplus": self.qmplus_state(),
             "targets": mcp_clients.targets(),
-            "mcp": self.mcp_state(),
-            "config": {
-                "port": DEFAULT_PORT,
-                "http_url": mcp_http_url(self._mcp_port),
-            },
         }
-
-    def mcp_state(self) -> dict[str, Any]:
-        running = bool(self._mcp_proc and self._mcp_proc.poll() is None)
-        if not running and http.port_open(self._mcp_port):
-            return {
-                "running": True,
-                "external": True,
-                "port": self._mcp_port,
-                "url": mcp_http_url(self._mcp_port),
-            }
-
-        return {
-            "running": running,
-            "external": False,
-            "port": self._mcp_port,
-            "pid": self._mcp_proc.pid if running else None,
-            "url": mcp_http_url(self._mcp_port) if running else None,
-        }
-
-    def start_mcp(self, port: int = DEFAULT_PORT) -> dict[str, Any]:
-        try:
-            port = int(port or DEFAULT_PORT)
-        except Exception:
-            port = DEFAULT_PORT
-
-        if self._mcp_proc and self._mcp_proc.poll() is None:
-            return {"ok": True, "message": "already running", **self.mcp_state()}
-
-        if http.port_open(port):
-            self._mcp_port = port
-            return {
-                "ok": True,
-                "message": "a server is already listening on this port",
-                "external": True,
-                **self.mcp_state(),
-            }
-
-        try:
-            self._mcp_port = port
-            paths.ensure_data_dir()
-            mcp_log = open(paths.MCP_LOG_FILE, "ab", buffering=0)
-            try:
-                self._mcp_proc = subprocess.Popen(
-                    paths.mcp_command("--transport", "http", "--port", str(port)),
-                    cwd=str(paths.ROOT),
-                    stdin=subprocess.DEVNULL,
-                    stdout=mcp_log,
-                    stderr=subprocess.STDOUT,
-                    creationflags=http.subprocess_flags(),
-                )
-            finally:
-                mcp_log.close()
-
-            deadline = time.time() + 8
-            while time.time() < deadline:
-                if self._mcp_proc.poll() is not None:
-                    return {"ok": False, "error": "server exited immediately (see console)"}
-                if http.port_open(port):
-                    break
-                time.sleep(0.2)
-
-            return {"ok": True, **self.mcp_state()}
-        except Exception as exc:
-            return {"ok": False, "error": http.err_text(exc)}
-
-    def stop_mcp(self) -> dict[str, Any]:
-        try:
-            if self._mcp_proc and self._mcp_proc.poll() is None:
-                self._mcp_proc.terminate()
-                try:
-                    self._mcp_proc.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    self._mcp_proc.kill()
-            self._mcp_proc = None
-            return {"ok": True, **self.mcp_state()}
-        except Exception as exc:
-            return {"ok": False, "error": http.err_text(exc)}
 
     def targets(self) -> dict[str, Any]:
         return {"ok": True, "targets": mcp_clients.targets()}
 
-    def install(self, targets: list[str], transport: str = "stdio") -> dict[str, Any]:
-        results = mcp_clients.install(targets or [], transport)
+    def install(self, targets: list[str]) -> dict[str, Any]:
+        results = mcp_clients.install(targets or [])
         return {"ok": all(r.get("ok") for r in results), "results": results}
 
     def remove_servers(self, targets: list[str]) -> dict[str, Any]:
@@ -233,7 +146,6 @@ class Api:
             indent=2,
         )
         tools = ", ".join(MCP_TOOL_NAMES)
-        http_url = mcp_http_url(self._mcp_port)
         prompt = (
             "Please add the following local MCP server to this AI client.\n\n"
             f"Server name: {MCP_SERVER_NAME}\n"
@@ -252,8 +164,6 @@ class Api:
             f"{snippet}\n\n"
             "Candidate config locations on this machine:\n"
             f"{locations}\n\n"
-            f"If this client only supports remote/HTTP MCP servers, use {http_url} "
-            "instead; the desktop app must be running with the local MCP server started.\n\n"
             f"Available tools: {tools}.\n\n"
             "Do not print, copy, or ask for any access tokens. Credentials stay "
             f"in {paths.DATA_DIR} and must not be added to the config."

@@ -15,8 +15,6 @@ CREATE_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 
 MCP_SERVER_NAME = "timelog"
 MCP_SERVER_TITLE = "Cloud Education Timelog"
-MCP_HOST = "127.0.0.1"
-DEFAULT_PORT = int(os.environ.get("TIMELOG_MCP_PORT", "8765"))
 KEEPALIVE_INTERVAL_S = 170
 
 MAIN_WINDOW: dict[str, Any] = {
@@ -130,7 +128,6 @@ MCP_CLIENTS: dict[str, dict[str, Any]] = {
         "bins": ("claude",),
         "detect_dirs": (("home", (".claude",)),),
         "detect_file": True,
-        "supports_http": True,
         "note": "User-scope MCP servers in ~/.claude.json",
     },
     "claude-desktop": {
@@ -141,7 +138,6 @@ MCP_CLIENTS: dict[str, dict[str, Any]] = {
         "bins": (),
         "detect_dirs": (("appdata", ("Claude",)),),
         "detect_file": False,
-        "supports_http": False,
         "note": "Requires restarting Claude Desktop",
     },
     "antigravity": {
@@ -155,7 +151,6 @@ MCP_CLIENTS: dict[str, dict[str, Any]] = {
             ("home", (".gemini", "antigravity")),
         ),
         "detect_file": True,
-        "supports_http": True,
         "note": "~/.gemini/config/mcp_config.json",
     },
     "gemini": {
@@ -166,7 +161,6 @@ MCP_CLIENTS: dict[str, dict[str, Any]] = {
         "bins": ("gemini",),
         "detect_dirs": (("home", (".gemini",)),),
         "detect_file": False,
-        "supports_http": True,
         "note": "~/.gemini/settings.json",
     },
     "codex": {
@@ -177,7 +171,6 @@ MCP_CLIENTS: dict[str, dict[str, Any]] = {
         "bins": ("codex",),
         "detect_dirs": (("home", (".codex",)),),
         "detect_file": False,
-        "supports_http": True,
         "note": "~/.codex/config.toml",
     },
     "cursor": {
@@ -188,7 +181,6 @@ MCP_CLIENTS: dict[str, dict[str, Any]] = {
         "bins": ("cursor",),
         "detect_dirs": (("home", (".cursor",)),),
         "detect_file": False,
-        "supports_http": True,
         "note": "Global MCP config for Cursor",
     },
     "windsurf": {
@@ -199,7 +191,6 @@ MCP_CLIENTS: dict[str, dict[str, Any]] = {
         "bins": ("windsurf",),
         "detect_dirs": (("home", (".codeium",)),),
         "detect_file": False,
-        "supports_http": True,
         "note": "mcp_config.json for Windsurf",
     },
     "vscode": {
@@ -210,7 +201,6 @@ MCP_CLIENTS: dict[str, dict[str, Any]] = {
         "bins": ("code",),
         "detect_dirs": (("appdata", ("Code",)),),
         "detect_file": False,
-        "supports_http": True,
         "note": "User-level mcp.json",
     },
     "zed": {
@@ -221,11 +211,6 @@ MCP_CLIENTS: dict[str, dict[str, Any]] = {
         "bins": ("zed",),
         "detect_dirs": (("zed", ()),),
         "detect_file": False,
-        "supports_http": False,
         "note": "context_servers in Zed settings",
     },
 }
-
-
-def mcp_http_url(port: int = DEFAULT_PORT) -> str:
-    return f"http://{MCP_HOST}:{port}/mcp"

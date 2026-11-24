@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from timelog import paths
-from timelog.config import MCP_CLIENTS, MCP_SERVER_NAME, mcp_http_url
+from timelog.config import MCP_CLIENTS, MCP_SERVER_NAME
 
 
 def _client_path(meta: dict[str, Any], overrides: dict[str, Path] | None = None) -> Path:
@@ -93,29 +93,18 @@ def targets(path_overrides: dict[str, Path] | None = None) -> list[dict[str, Any
                 "detected": detected,
                 "exists": cfg_path.exists(),
                 "configured": _entry_present(cfg_path, meta["key"]),
-                "supports_http": meta["supports_http"],
                 "note": meta["note"],
             }
         )
     return out
 
 
-def spec(tid: str, transport: str = "stdio") -> dict[str, Any]:
-    if transport == "http" and MCP_CLIENTS[tid]["supports_http"]:
-        url = mcp_http_url()
-
-        if tid == "gemini":
-            return {"httpUrl": url}
-        if tid == "antigravity":
-            return {"url": url}
-            
-        return {"type": "http", "url": url}
-
+def spec(tid: str) -> dict[str, Any]:
     cmd = paths.mcp_command()
     base: dict[str, Any] = {"command": cmd[0], "args": cmd[1:]}
     if tid == "vscode":
         return {"type": "stdio", **base}
-        
+
     if tid == "zed":
         return {"command": {"path": cmd[0], "args": cmd[1:], "env": {}}}
     return base
@@ -123,12 +112,9 @@ def spec(tid: str, transport: str = "stdio") -> dict[str, Any]:
 
 def _toml_section(spec_: dict[str, Any]) -> str:
     lines = [f"[mcp_servers.{MCP_SERVER_NAME}]"]
-    if "url" in spec_:
-        lines.append(f'url = "{spec_["url"]}"')
-    else:
-        lines.append(f'command = {json.dumps(spec_["command"])}')
-        args = ", ".join(json.dumps(a) for a in spec_["args"])
-        lines.append(f"args = [{args}]")
+    lines.append(f'command = {json.dumps(spec_["command"])}')
+    args = ", ".join(json.dumps(a) for a in spec_["args"])
+    lines.append(f"args = [{args}]")
     return "\n".join(lines) + "\n"
 
 
@@ -152,7 +138,6 @@ def _install_toml(path: Path, payload: dict[str, Any]) -> tuple[str, str | None]
 
 def install(
     target_ids: list[str],
-    transport: str = "stdio",
     path_overrides: dict[str, Path] | None = None,
 ) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
@@ -167,7 +152,7 @@ def install(
             if path_overrides and tid in path_overrides
             else paths.CLIENT_ROOTS[meta["root"]].joinpath(*meta["rel_path"])
         )
-        payload = spec(tid, transport)
+        payload = spec(tid)
         try:
             if cfg_path.suffix == ".toml":
                 note, bak = _install_toml(cfg_path, payload)

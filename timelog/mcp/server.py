@@ -13,8 +13,6 @@ from mcp.server.mcpserver import MCPServer
 from timelog import paths
 from timelog.config import (
     APP_VERSION,
-    DEFAULT_PORT,
-    MCP_HOST,
     MCP_SERVER_NAME,
     MCP_SERVER_TITLE,
 )
@@ -87,9 +85,6 @@ register_all(mcp, OTJ_GUIDE)
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Timelog MCP server")
-    ap.add_argument("--transport", choices=["stdio", "http", "sse"], default="stdio")
-    ap.add_argument("--host", default=MCP_HOST)
-    ap.add_argument("--port", type=int, default=DEFAULT_PORT)
     ap.add_argument("--selftest", action="store_true")
     args = ap.parse_args(argv)
 
@@ -105,17 +100,7 @@ def main(argv: list[str] | None = None) -> int:
         print("\nselftest OK")
         return 0
 
-    if args.transport == "stdio":
-        mcp.run(transport="stdio")
-    elif args.transport == "sse":
-        mcp.run(transport="sse", host=args.host, port=args.port)
-    else:
-        print(
-            f"Timelog MCP listening on http://{args.host}:{args.port}/mcp",
-            file=sys.stderr,
-            flush=True,
-        )
-        mcp.run(transport="streamable-http", host=args.host, port=args.port)
+    mcp.run(transport="stdio")
     return 0
 
 
