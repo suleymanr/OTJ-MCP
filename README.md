@@ -26,7 +26,7 @@ Desktop companion app and <a href="https://modelcontextprotocol.io/">Model Conte
 
 Download the latest archive from **Releases**:
 
-- **Windows:** `timelog-mcp-windows.zip`: extract and run `timelog-mcp.exe`.
+- **Windows:** `timelog-mcp.exe`: download and run directly.
 - **macOS:** `timelog-mcp-macos-arm64.zip`: extract `TimelogMCP.app` to `/Applications`.
 
 ### Option 2: Run from Source
