@@ -1,0 +1,22 @@
+# --- credentials / sessions: never commit ---
+tokens.json
+tokens.json.tmp
+.browser-profile/
+*.bak
+*.bak-*
+
+# --- python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+
+# --- os / editors ---
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/

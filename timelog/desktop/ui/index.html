@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en-GB" data-theme="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="color-scheme" content="dark" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Timelog</title>
+  <link rel="stylesheet" href="style.css?v=20261124b" />
+</head>
+<body>
+  <header class="titlebar">
+    <div class="titlebar-brand">
+      <svg class="mark" viewBox="0 0 20 20" aria-hidden="true">
+        <circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" stroke-width="1.6"></circle>
+        <path d="M10 10V2A8 8 0 0 1 18 10z" fill="currentColor"></path>
+      </svg>
+      <span>Timelog</span>
+    </div>
+    <div class="titlebar-drag pywebview-drag-region"></div>
+    <div class="titlebar-actions">
+      <div class="status-pill" title="University account connections">
+        <span id="globalDot" class="dot"></span>
+        <span id="globalStatus">Checking accounts</span>
+      </div>
+    </div>
+    <div class="caption">
+      <button id="minBtn" class="caption-btn" type="button" aria-label="Minimise window" title="Minimise"><span data-icon="minus"></span></button>
+      <button id="closeBtn" class="caption-btn caption-close" type="button" aria-label="Close Timelog" title="Close"><span data-icon="x"></span></button>
+    </div>
+  </header>
+
+  <main class="main" id="main">
+    <div class="page">
+      <header class="page-head">
+        <div>
+          <h1>Timelog</h1>
+          <p class="page-desc">Connect your university accounts and link Timelog to your AI apps.</p>
+        </div>
+        <button id="refreshBtn" class="btn btn-secondary btn-sm" type="button"><span data-icon="refresh"></span>Refresh</button>
+      </header>
+
+      <section class="card" aria-labelledby="accountsTitle">
+        <div class="card-head">
+          <div class="card-heading">
+            <h2 id="accountsTitle">University accounts</h2>
+            <p class="card-desc">Sessions are saved locally on this device.</p>
+          </div>
+          <div class="card-head-right">
+            <span id="sourcesStatus" class="badge" data-s="off"><span class="badge-dot" aria-hidden="true"></span>Checking…</span>
+          </div>
+        </div>
+        <div id="sourceList" class="card-list" aria-live="polite"></div>
+      </section>
+
+      <section class="card" aria-labelledby="integrationsTitle">
+        <div class="card-head">
+          <div class="card-heading">
+            <h2 id="integrationsTitle">AI Integrations</h2>
+            <p class="card-desc">Expose Timelog MCP tools to your local AI apps.</p>
+          </div>
+          <div class="card-head-right">
+            <span id="aiStatus" class="badge" data-s="off"><span class="badge-dot" aria-hidden="true"></span>Finding apps…</span>
+            <button id="otherClientBtn" class="btn btn-secondary btn-xs" type="button" data-open-prompt>Manual setup<span data-icon="arrow-up-right"></span></button>
+          </div>
+        </div>
+        <div id="targetList" class="card-list"></div>
+      </section>
+
+      <section class="card server-card" aria-labelledby="serverTitle">
+        <div class="server-row">
+          <span class="row-symbol" aria-hidden="true"><span data-icon="server"></span></span>
+          <div class="row-main">
+            <div class="row-heading">
+              <span class="row-title" id="serverTitle">Local HTTP server</span>
+            </div>
+            <p id="serverNote" class="row-detail">Most AI apps start Timelog automatically. Only run this for clients that connect over HTTP.</p>
+          </div>
+          <div class="row-actions">
+            <span id="serverSummary" class="badge" data-s="off"><span class="badge-dot" aria-hidden="true"></span>Optional</span>
+            <button id="serverToggle" class="switch" type="button" role="switch" aria-checked="false" aria-label="Local HTTP server">
+              <span class="switch-knob" aria-hidden="true"></span>
+            </button>
+          </div>
+        </div>
+        <div class="endpoint-wrap" id="endpointBar" hidden>
+          <div class="endpoint-bar">
+            <span id="serverDot" class="dot" data-s="ok"></span>
+            <code id="serverAddress">http://127.0.0.1:8765/mcp</code>
+            <button id="copyServerBtn" class="btn btn-secondary btn-xs" type="button"><span data-icon="copy"></span>Copy</button>
+          </div>
+        </div>
+      </section>
+
+      <footer class="page-foot">
+        <span><span data-icon="lock"></span>Credentials stay on this device</span>
+        <button id="dataFolderBtn" class="text-btn" type="button">Open data folder<span data-icon="arrow-up-right"></span></button>
+      </footer>
+    </div>
+  </main>
+
+  <div class="modal" id="promptModal" hidden>
+    <div class="modal-backdrop" data-close-modal></div>
+    <div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="promptTitle" aria-describedby="promptDescription">
+      <div class="modal-head">
+        <div>
+          <h2 id="promptTitle">Add using prompt</h2>
+          <p id="promptDescription">Paste this prompt into an AI app that can edit files or run commands.</p>
+        </div>
+        <button class="modal-close" type="button" data-close-modal aria-label="Close dialog" title="Close"><span data-icon="x"></span></button>
+      </div>
+      <div class="modal-body">
+        <div class="modal-tabs" role="tablist" aria-label="Setup format">
+          <span class="seg-thumb" aria-hidden="true"></span>
+          <button type="button" class="seg-tab" role="tab" aria-selected="true" data-prompt-tab="prompt">AI prompt</button>
+          <button type="button" class="seg-tab" role="tab" aria-selected="false" data-prompt-tab="snippet">JSON config</button>
+        </div>
+        <pre class="prompt" id="promptText" tabindex="0">Building your setup prompt…</pre>
+        <div class="modal-foot">
+          <button class="btn btn-secondary btn-md" type="button" data-close-modal>Close</button>
+          <button id="copyPromptBtn" class="btn btn-primary btn-md" type="button"><span data-icon="copy"></span>Copy prompt</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="toasts" class="toasts" role="status" aria-live="polite"></div>
+  <script src="app.js?v=20261124b"></script>
+</body>
+</html>
