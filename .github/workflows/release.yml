@@ -15,14 +15,23 @@ jobs:
         steps:
             -   uses: actions/checkout@v4
 
-            -   name: Create clean TimelogMCP.zip
+            -   uses: actions/setup-python@v5
+                with:
+                    python-version: "3.12"
+
+            -   name: Stage shared build files
                 run: |
-                    $stage = "dist\timelog-mcp"
-                    $build = "$stage\build"
+                    $build = "dist\build"
                     New-Item -ItemType Directory -Force -Path $build | Out-Null
                     Copy-Item app.py, launch.py, requirements.txt, pyproject.toml, README.md -Destination $build
                     Copy-Item timelog -Destination "$build\timelog" -Recurse
                     Get-ChildItem $build -Recurse -Directory -Filter "__pycache__" | Remove-Item -Recurse -Force
+
+            -   name: Package TimelogMCP-windows.zip
+                run: |
+                    $stage = "dist\win\timelog-mcp"
+                    New-Item -ItemType Directory -Force -Path $stage | Out-Null
+                    Copy-Item dist\build -Destination "$stage\build" -Recurse
 
                     $ws = New-Object -ComObject WScript.Shell
                     $s = $ws.CreateShortcut("$PWD\$stage\mcp.lnk")
@@ -33,16 +42,59 @@ jobs:
                     $s.IconLocation = 'build\timelog\desktop\ui\icons\timelog.ico,0'
                     $s.Save()
 
-                    Compress-Archive -Path $stage -DestinationPath dist\TimelogMCP.zip -Force
+                    Compress-Archive -Path $stage -DestinationPath dist\TimelogMCP-windows.zip -Force
 
-            -   name: Upload workflow artifact
+            -   name: Package TimelogMCP-macos.zip
+                run: |
+                    @'
+                    import textwrap
+                    import zipfile
+                    from pathlib import Path
+
+                    plist = textwrap.dedent("""\
+                        <?xml version="1.0" encoding="UTF-8"?>
+                        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+                        <plist version="1.0">
+                        <dict>
+                            <key>CFBundleExecutable</key><string>TimelogMCP</string>
+                            <key>CFBundleIdentifier</key><string>uk.ac.qmul.timelog-mcp</string>
+                            <key>CFBundleName</key><string>TimelogMCP</string>
+                            <key>CFBundlePackageType</key><string>APPL</string>
+                        </dict>
+                        </plist>
+                    """)
+
+                    launcher = textwrap.dedent("""\
+                        #!/bin/sh
+                        export PATH="/opt/homebrew/bin:/usr/local/bin:/Library/Frameworks/Python.framework/Versions/Current/bin:$PATH"
+                        DIR="$(cd "$(dirname "$0")/../../.." && pwd)/build"
+                        cd "$DIR" || exit 1
+                        exec python3 "$DIR/launch.py"
+                    """)
+
+                    with zipfile.ZipFile("dist/TimelogMCP-macos.zip", "w", zipfile.ZIP_DEFLATED) as zf:
+                        for p in Path("dist/build").rglob("*"):
+                            if p.is_file():
+                                zf.write(p, f"timelog-mcp/build/{p.relative_to('dist/build').as_posix()}")
+                        zf.writestr("timelog-mcp/TimelogMCP.app/Contents/Info.plist", plist)
+                        info = zipfile.ZipInfo("timelog-mcp/TimelogMCP.app/Contents/MacOS/TimelogMCP")
+                        info.create_system = 3
+                        info.external_attr = 0o755 << 16
+                        zf.writestr(info, launcher)
+                    '@ | python -
+
+            -   name: Upload workflow artifacts
                 uses: actions/upload-artifact@v4
                 with:
                     name: TimelogMCP
-                    path: dist/TimelogMCP.zip
+                    path: |
+                        dist/TimelogMCP-windows.zip
+                        dist/TimelogMCP-macos.zip
 
             -   name: Publish GitHub Release
                 if: startsWith(github.ref, 'refs/tags/v')
                 uses: softprops/action-gh-release@v2
                 with:
-                    files: dist/TimelogMCP.zip
+                    files: |
+                        dist/TimelogMCP-windows.zip
+                        dist/TimelogMCP-macos.zip

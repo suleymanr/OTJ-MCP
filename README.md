@@ -22,11 +22,10 @@ Desktop companion app and MCP for logging OTJ training & allowing agents to inte
 
 ## Installation
 
-1. Download `TimelogMCP.zip` from **Releases** and extract `timelog-mcp` anywhere (e.g. `Documents/timelog-mcp`).
+1. Download the release zip for your OS from **Releases** and extract `timelog-mcp` anywhere:
+   - **Windows:** `TimelogMCP-windows.zip`: double-click `mcp.lnk`
+   - **macOS:** `TimelogMCP-macos.zip`: double-click `TimelogMCP.app`
 2. Requires **Python 3.11+**.
-3. Launch:
-   - **Windows:** Double-click `mcp.lnk`
-   - **macOS:** Run `python3 build/launch.py`
 
 On launch, `launch.py` checks for updates via Git (installing Git if missing), sets up `.venv`, installs dependencies, and opens TimelogMCP.
 
